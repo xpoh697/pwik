@@ -1,0 +1,46 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "PWiK Piaseczno iBOK",
+        "description": "Введите учетные данные для портала ibok.pwikpiaseczno.pl",
+        "data": {
+          "username": "Логин",
+          "password": "Пароль"
+        }
+      },
+      "sensors": {
+        "title": "Привязка локальных сенсоров воды",
+        "description": "Выберите сущности локальных датчиков расхода воды из Home Assistant для каждого счетчика (опционально)"
+      }
+    },
+    "error": {
+      "cannot_connect": "Не удалось подключиться к серверу PWiK",
+      "invalid_auth": "Неверный логин или пароль",
+      "unknown": "Произошла непредвиденная ошибка"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Настройки PWiK Piaseczno",
+        "data": {
+          "update_interval": "Интервал опроса (в секундах)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "last_reading": { "name": "Последнее показание" },
+      "last_reading_date": { "name": "Дата последнего показания" },
+      "submission_status": { "name": "Статус передачи показаний" },
+      "pending_reading": { "name": "Текущая поданная заявка" },
+      "consumption_since_last_reading": { "name": "Расход с момента последнего показания" }
+    },
+    "button": {
+      "submit_reading": { "name": "Подать показания" },
+      "cancel_reading": { "name": "Отменить поданное показание" }
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "PWiK Piaseczno iBOK",
+        "description": "Podaj dane logowania do portalu ibok.pwikpiaseczno.pl",
+        "data": {
+          "username": "Login",
+          "password": "Hasło"
+        }
+      },
+      "sensors": {
+        "title": "Powiązanie lokalnych sensorów",
+        "description": "Wybierz lokalne encje sensorów wody z Home Assistant dla każdego licznika (opcjonalnie)"
+      }
+    },
+    "error": {
+      "cannot_connect": "Nie udało się połączyć z serwerem PWiK",
+      "invalid_auth": "Nieprawidłowy login lub hasło",
+      "unknown": "Wystąpił nieoczekiwany błąd"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opcje PWiK Piaseczno",
+        "data": {
+          "update_interval": "Interwał odświeżania (sekundy)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "last_reading": { "name": "Ostatni odczyt" },
+      "last_reading_date": { "name": "Data ostatniego odczytu" },
+      "submission_status": { "name": "Status zgłoszenia" },
+      "pending_reading": { "name": "Zgłoszony odczyt (oczekujący)" },
+      "consumption_since_last_reading": { "name": "Zużycie od ostatniego odczytu" }
+    },
+    "button": {
+      "submit_reading": { "name": "Wyślij odczyt" },
+      "cancel_reading": { "name": "Anuluj zgłoszenie" }
+    }
+  }
+}

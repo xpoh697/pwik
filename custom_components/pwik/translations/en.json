@@ -1,0 +1,46 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "PWiK Piaseczno iBOK",
+        "description": "Enter your login credentials for ibok.pwikpiaseczno.pl",
+        "data": {
+          "username": "Username",
+          "password": "Password"
+        }
+      },
+      "sensors": {
+        "title": "Link Local Water Sensors",
+        "description": "Select local Home Assistant water sensor entities for each discovered meter (optional)"
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to PWiK server",
+      "invalid_auth": "Invalid username or password",
+      "unknown": "Unexpected error occurred"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "PWiK Piaseczno Options",
+        "data": {
+          "update_interval": "Update interval (seconds)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "last_reading": { "name": "Last reading" },
+      "last_reading_date": { "name": "Last reading date" },
+      "submission_status": { "name": "Submission status" },
+      "pending_reading": { "name": "Pending submitted reading" },
+      "consumption_since_last_reading": { "name": "Consumption since last reading" }
+    },
+    "button": {
+      "submit_reading": { "name": "Submit reading" },
+      "cancel_reading": { "name": "Cancel submission" }
+    }
+  }
+}

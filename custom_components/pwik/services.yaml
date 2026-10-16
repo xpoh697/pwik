@@ -1,0 +1,46 @@
+submit_reading:
+  name: Submit Water Meter Reading
+  description: Submits a water meter reading to PWiK Piaseczno iBOK.
+  fields:
+    value:
+      name: Reading Value
+      description: Water meter reading value (e.g. 270 or 270.125).
+      required: true
+      example: 270.5
+      selector:
+        number:
+          step: 0.001
+          unit_of_measurement: "m³"
+    meter_id:
+      name: Meter Serial Number
+      description: Serial number of the water meter (e.g. 72130027). Required if you have multiple meters.
+      required: false
+      example: "72130027"
+      selector:
+        text:
+    date:
+      name: Reading Date
+      description: Reading date in YYYY-MM-DD format (defaults to today).
+      required: false
+      example: "2026-10-16"
+      selector:
+        date:
+    comment:
+      name: Comment
+      description: Optional comment submitted with the reading.
+      required: false
+      example: "Podano z automatyzacji Home Assistant"
+      selector:
+        text:
+
+cancel_reading:
+  name: Cancel Reading Submission
+  description: Cancels a pending water meter reading submission in PWiK Piaseczno iBOK.
+  fields:
+    meter_id:
+      name: Meter Serial Number
+      description: Serial number of the water meter. Required if you have multiple meters.
+      required: false
+      example: "72130027"
+      selector:
+        text:
