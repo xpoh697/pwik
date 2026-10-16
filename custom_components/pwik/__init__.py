@@ -136,31 +136,33 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if not target_meters:
             raise HomeAssistantError("No water meters found in PWiK account")
 
+        # Disallow ambiguous value without meter_id in multi-meter setup
+        if "value" in call.data and call.data["value"] is not None and not meter_id and len(target_meters) > 1:
+            raise HomeAssistantError("При указании фиксированного 'value' необходимо также указать 'meter_id'")
+
+        success_count = 0
+        errors: list[str] = []
+
         for idx, m_id in enumerate(target_meters):
             if "value" in call.data and call.data["value"] is not None:
                 val_to_submit: float | str = call.data["value"]
             else:
                 source_entity = get_source_sensor(entry, m_id)
                 if not source_entity:
+                    msg = f"Локальный сенсор расхода воды для счетчика {m_id} не настроен"
                     if len(target_meters) == 1:
-                        raise HomeAssistantError(
-                            f"Локальный сенсор расхода воды для счетчика {m_id} не настроен."
-                        )
-                    _LOGGER.info("Счетчик %s пропущен: локальный сенсор не привязан", m_id)
+                        raise HomeAssistantError(msg)
+                    _LOGGER.warning(msg)
+                    errors.append(msg)
                     continue
 
                 state = hass.states.get(source_entity)
                 if not state or state.state in ("unknown", "unavailable"):
+                    msg = f"Локальный сенсор '{source_entity}' для счетчика {m_id} недоступен (состояние: {state.state if state else 'None'})"
                     if len(target_meters) == 1:
-                        raise HomeAssistantError(
-                            f"Локальный сенсор '{source_entity}' для счетчика {m_id} недоступен (состояние: {state.state if state else 'None'})"
-                        )
-                    _LOGGER.warning(
-                        "Счетчик %s пропущен: локальный сенсор %s недоступен (состояние: %s)",
-                        m_id,
-                        source_entity,
-                        state.state if state else "None",
-                    )
+                        raise HomeAssistantError(msg)
+                    _LOGGER.warning(msg)
+                    errors.append(msg)
                     continue
 
                 try:
@@ -172,18 +174,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 except (ValueError, TypeError):
                     val_to_submit = state.state
 
-            await coordinator.api.submit_reading(
-                meter_id=m_id,
-                value=val_to_submit,
-                date_str=date_str,
-                comment=comment,
-            )
+            try:
+                await coordinator.api.submit_reading(
+                    meter_id=m_id,
+                    value=val_to_submit,
+                    date_str=date_str,
+                    comment=comment,
+                )
+                success_count += 1
+            except Exception as err:
+                _LOGGER.warning("Ошибка при отправке показаний счетчика %s: %s", m_id, err)
+                errors.append(f"{m_id}: {err}")
+                if len(target_meters) == 1:
+                    raise HomeAssistantError(str(err)) from err
 
             # Delay between multiple meter submissions to prevent server session clash
             if idx < len(target_meters) - 1:
                 await asyncio.sleep(2)
 
         await coordinator.async_request_refresh()
+
+        if success_count == 0 and errors:
+            raise HomeAssistantError(f"Не удалось передать показания счетчиков: {'; '.join(errors)}")
 
     async def handle_cancel_reading(call: ServiceCall) -> None:
         """Handle cancel reading service call."""

@@ -138,53 +138,57 @@ class PwikApiClient:
             _LOGGER.debug("Error checking PWiK errors endpoint: %s", err)
             return []
 
+    async def _get_data_unlocked(self) -> dict[str, Any]:
+        """Fetch meters status and readouts history without acquiring lock."""
+        if not self._is_logged_in:
+            await self.login(force_kill=True)
+
+        try:
+            async with self._session.get(
+                URL_NOTIFY_READOUT,
+                headers=self._headers,
+                timeout=aiohttp.ClientTimeout(total=20),
+            ) as resp:
+                text = await resp.text()
+                if "sessionExpired" in text or "txtPassword" in text:
+                    _LOGGER.debug("Session expired. Re-authenticating...")
+                    await self.login(force_kill=True)
+                    async with self._session.get(
+                        URL_NOTIFY_READOUT,
+                        headers=self._headers,
+                        timeout=aiohttp.ClientTimeout(total=20),
+                    ) as retry_resp:
+                        text = await retry_resp.text()
+
+                meters = json.loads(text)
+        except json.JSONDecodeError as err:
+            raise PwikApiError("Malformed JSON response from PWiK NotifyReadout") from err
+        except Exception as err:
+            raise PwikApiError(f"Failed to fetch meters from PWiK: {err}") from err
+
+        # Fetch history
+        history = []
+        try:
+            async with self._session.get(
+                URL_READOUTS_HISTORY,
+                headers=self._headers,
+                timeout=aiohttp.ClientTimeout(total=20),
+            ) as resp:
+                hist_text = await resp.text()
+                if "sessionExpired" not in hist_text:
+                    history = json.loads(hist_text)
+        except Exception as err:
+            _LOGGER.debug("Failed to fetch PWiK history: %s", err)
+
+        return {
+            "meters": {m["numer_fabryczny"]: m for m in meters},
+            "history": history,
+        }
+
     async def get_data(self) -> dict[str, Any]:
-        """Fetch meters status and readouts history."""
+        """Fetch meters status and readouts history (thread-safe)."""
         async with self._lock:
-            if not self._is_logged_in:
-                await self.login(force_kill=True)
-
-            try:
-                async with self._session.get(
-                    URL_NOTIFY_READOUT,
-                    headers=self._headers,
-                    timeout=aiohttp.ClientTimeout(total=20),
-                ) as resp:
-                    text = await resp.text()
-                    if "sessionExpired" in text or "txtPassword" in text:
-                        _LOGGER.debug("Session expired. Re-authenticating...")
-                        await self.login(force_kill=True)
-                        async with self._session.get(
-                            URL_NOTIFY_READOUT,
-                            headers=self._headers,
-                            timeout=aiohttp.ClientTimeout(total=20),
-                        ) as retry_resp:
-                            text = await retry_resp.text()
-
-                    meters = json.loads(text)
-            except json.JSONDecodeError as err:
-                raise PwikApiError("Malformed JSON response from PWiK NotifyReadout") from err
-            except Exception as err:
-                raise PwikApiError(f"Failed to fetch meters from PWiK: {err}") from err
-
-            # Fetch history
-            history = []
-            try:
-                async with self._session.get(
-                    URL_READOUTS_HISTORY,
-                    headers=self._headers,
-                    timeout=aiohttp.ClientTimeout(total=20),
-                ) as resp:
-                    hist_text = await resp.text()
-                    if "sessionExpired" not in hist_text:
-                        history = json.loads(hist_text)
-            except Exception as err:
-                _LOGGER.debug("Failed to fetch PWiK history: %s", err)
-
-            return {
-                "meters": {m["numer_fabryczny"]: m for m in meters},
-                "history": history,
-            }
+            return await self._get_data_unlocked()
 
     @staticmethod
     def format_reading(value: float | str, min_zakres: str) -> tuple[str, str]:
@@ -212,11 +216,22 @@ class PwikApiClient:
     ) -> bool:
         """Submit water meter reading with strict validation and error detection."""
         async with self._lock:
-            # 1. Ensure active session and get meter info
-            data = await self.get_data()
+            # 1. Fetch fresh data safely inside lock
+            data = await self._get_data_unlocked()
             meter = data["meters"].get(meter_id)
             if not meter:
                 raise PwikApiError(f"Water meter {meter_id} not found in PWiK account")
+
+            # Check if reading submission is already pending or in progress
+            status = str(meter.get("ist", ""))
+            if status == "1":
+                raise PwikApiError(
+                    f"Заявка на передачу показаний для счетчика {meter_id} уже ожидает подтверждения (статус: pending)"
+                )
+            if status == "2":
+                raise PwikApiError(
+                    f"Заявка на передачу показаний для счетчика {meter_id} уже находится в обработке (статус: in_progress)"
+                )
 
             # Validate monotonous increase
             last_reading = float(meter.get("sl", 0))
@@ -234,6 +249,13 @@ class PwikApiClient:
                 clean_date = date.fromisoformat(str(date_str).strip()[:10]).isoformat()
             except (ValueError, TypeError):
                 clean_date = date.today().isoformat()
+
+            # Date check: cannot be earlier than previous reading date
+            last_date = meter.get("do")
+            if last_date and clean_date < str(last_date).strip()[:10]:
+                raise PwikApiError(
+                    f"Дата показания ({clean_date}) не может быть раньше даты предыдущего биллингового показания ({last_date})"
+                )
 
             # 2. Build multipart payload strictly matching PWiK portal fields
             form = aiohttp.FormData()
@@ -278,7 +300,7 @@ class PwikApiClient:
     async def cancel_reading(self, meter_id: str) -> bool:
         """Cancel a pending reading submission."""
         async with self._lock:
-            data = await self.get_data()
+            data = await self._get_data_unlocked()
             meter = data["meters"].get(meter_id)
             if not meter:
                 raise PwikApiError(f"Water meter {meter_id} not found")
