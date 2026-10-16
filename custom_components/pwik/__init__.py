@@ -1,6 +1,7 @@
 """The PWiK Piaseczno iBOK integration."""
 from __future__ import annotations
 
+import asyncio
 from datetime import date
 import logging
 from typing import Any
@@ -22,6 +23,7 @@ import homeassistant.helpers.config_validation as cv
 from .api import PwikApiClient
 from .const import CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL, DOMAIN
 from .coordinator import PwikDataUpdateCoordinator
+from .sensor import get_source_sensor
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -32,7 +34,7 @@ SERVICE_CANCEL_READING = "cancel_reading"
 
 SUBMIT_READING_SCHEMA = vol.Schema(
     {
-        vol.Required("value"): vol.Any(cv.positive_float, cv.string),
+        vol.Optional("value"): vol.Any(cv.positive_float, cv.string),
         vol.Optional("meter_id"): cv.string,
         vol.Optional("date"): cv.string,
         vol.Optional("comment", default="Podano przez Home Assistant"): cv.string,
@@ -124,26 +126,63 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register services
     async def handle_submit_reading(call: ServiceCall) -> None:
         """Handle submit reading service call."""
-        value = call.data["value"]
         meter_id = call.data.get("meter_id")
         date_str = call.data.get("date") or date.today().isoformat()
         comment = call.data.get("comment", "Podano przez Home Assistant")
 
         meters = coordinator.data.get("meters", {})
-        if not meter_id:
-            if len(meters) == 1:
-                meter_id = next(iter(meters.keys()))
-            else:
-                raise HomeAssistantError(
-                    f"Multiple meters found ({list(meters.keys())}). Please specify meter_id."
-                )
+        target_meters = [meter_id] if meter_id else list(meters.keys())
 
-        await coordinator.api.submit_reading(
-            meter_id=meter_id,
-            value=value,
-            date_str=date_str,
-            comment=comment,
-        )
+        if not target_meters:
+            raise HomeAssistantError("No water meters found in PWiK account")
+
+        for idx, m_id in enumerate(target_meters):
+            if "value" in call.data and call.data["value"] is not None:
+                val_to_submit: float | str = call.data["value"]
+            else:
+                source_entity = get_source_sensor(entry, m_id)
+                if not source_entity:
+                    if len(target_meters) == 1:
+                        raise HomeAssistantError(
+                            f"Локальный сенсор расхода воды для счетчика {m_id} не настроен."
+                        )
+                    _LOGGER.info("Счетчик %s пропущен: локальный сенсор не привязан", m_id)
+                    continue
+
+                state = hass.states.get(source_entity)
+                if not state or state.state in ("unknown", "unavailable"):
+                    if len(target_meters) == 1:
+                        raise HomeAssistantError(
+                            f"Локальный сенсор '{source_entity}' для счетчика {m_id} недоступен (состояние: {state.state if state else 'None'})"
+                        )
+                    _LOGGER.warning(
+                        "Счетчик %s пропущен: локальный сенсор %s недоступен (состояние: %s)",
+                        m_id,
+                        source_entity,
+                        state.state if state else "None",
+                    )
+                    continue
+
+                try:
+                    curr_val = float(state.state)
+                    uom = str(state.attributes.get("unit_of_measurement", "")).lower()
+                    if uom in ("l", "литр", "литра", "литров", "dm3", "dm³"):
+                        curr_val = round(curr_val / 1000.0, 3)
+                    val_to_submit = curr_val
+                except (ValueError, TypeError):
+                    val_to_submit = state.state
+
+            await coordinator.api.submit_reading(
+                meter_id=m_id,
+                value=val_to_submit,
+                date_str=date_str,
+                comment=comment,
+            )
+
+            # Delay between multiple meter submissions to prevent server session clash
+            if idx < len(target_meters) - 1:
+                await asyncio.sleep(2)
+
         await coordinator.async_request_refresh()
 
     async def handle_cancel_reading(call: ServiceCall) -> None:

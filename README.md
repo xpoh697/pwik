@@ -12,16 +12,16 @@
 
 - **Поддержка всех типов счетчиков**: автоматическое обнаружение как основного ввода (`N` — Główny), так и дополнительных подлинейников (`P` — Podlicznik / Сад).
 - **Сенсоры для каждого счетчика**:
-  - `sensor.<meter_id>_last_reading`: Последнее подтвержденное показание ($m^3$, `device_class: water`, `state_class: total_increasing`).
-  - `sensor.<meter_id>_last_reading_date`: Дата последней фиксации показания.
-  - `sensor.<meter_id>_reading_submission_status`: Статус заявки (`allowed`, `pending`, `in_progress`, `rejected`, `approved`).
-  - `sensor.<meter_id>_pending_reading`: Текущее поданное значение, ожидающее подтверждения оператором.
-  - `sensor.<meter_id>_consumption_since_last_reading`: Реальный расход воды с момента последнего биллинга (при привязке к локальному импульсному/цифровому датчику в HA).
+  - `sensor.wodomierz_<meter_id>_last_reading`: Последнее подтвержденное показание ($m^3$, `device_class: water`, `state_class: total_increasing`).
+  - `sensor.wodomierz_<meter_id>_last_reading_date`: Дата последней фиксации показания.
+  - `sensor.wodomierz_<meter_id>_submission_status`: Статус заявки (`allowed`, `pending`, `in_progress`, `rejected`, `approved`).
+  - `sensor.wodomierz_<meter_id>_pending_reading`: Последнее поданное абонентом показание.
+  - `sensor.wodomierz_<meter_id>_consumption_since_last_reading`: Реальный расход воды с момента последнего биллинга (рассчитывается в реальном времени при привязке к локальному импульсному или цифровому датчику в HA).
 - **Кнопки управления**:
-  - `button.<meter_id>_submit_reading`: Отправка текущих показаний из привязанного сенсора в один клик.
-  - `button.<meter_id>_cancel_reading`: Отмена переданных показаний, если заявка находится в статусе ожидания (`pending`).
+  - `button.wodomierz_<meter_id>_submit_reading`: Отправка текущих показаний из привязанного сенсора в один клик.
+  - `button.wodomierz_<meter_id>_cancel_reading`: Отмена переданных показаний, если заявка находится в статусе ожидания (`pending`).
 - **Службы автоматизации**:
-  - `pwik.submit_reading`: Передача показаний счетчика из автоматизаций (например, в конце расчетного периода).
+  - `pwik.submit_reading`: Передача показаний счетчиков из автоматизаций (если параметры не указаны, автоматически считывает и отправляет показания для всех настроенных счетчиков).
   - `pwik.cancel_reading`: Отмена заявки на передачу показаний.
 - **Интеллектуальная обработка сессий**: автоматическое обнаружение конфликтов одиночной сессии (`#loginWrongSessionLimit`) и аварийный сброс через `?logout=true&kill=true`.
 - **Строгая валидация**:
@@ -52,25 +52,45 @@
 1. В Home Assistant перейдите в **Настройки** -> **Устройства и службы** -> **Добавить интеграцию**.
 2. Найдите **PWiK Piaseczno iBOK**.
 3. Введите логин и пароль от личного кабинета iBOK.
-4. На следующем шаге при желании привяжите локальные датчики расхода воды Home Assistant (например, `sensor.water_meter_total`) к обнаруженным счетчикам.
+4. На следующем шаге привяжите локальные датчики расхода воды Home Assistant (например, `sensor.lora_wmbus_bridge_apator_water_counter` для основного ввода и `sensor.podlicznik_value` для садового подлинейника).
 
 ---
 
 ## Использование в автоматизациях
 
-### Пример регулярной отправки показаний (раз в месяц)
+### Пример регулярной отправки показаний (1-го числа месяца в 00:01 с отчетом в Telegram)
+
+Интеграция автоматически считывает текущие значения из привязанных локальных сенсоров, нормализует единицы измерения и отправляет показания для всех счетчиков без необходимости повторно передавать значения в YAML:
+
 ```yaml
 alias: "PWiK: Ежемесячная передача показаний воды"
-trigger:
-  - platform: time
-    at: "10:00:00"
-condition:
+description: "Автоматическая отправка показаний основного счетчика и подлинейника в PWiK Piaseczno 1-го числа каждого месяца в 00:01 с отчетом в Telegram"
+triggers:
+  - trigger: time
+    at: "00:01:00"
+conditions:
   - condition: template
-    value_template: "{{ now().day == 28 }}"
-action:
-  - service: pwik.submit_reading
+    value_template: "{{ now().day == 1 }}"
+actions:
+  # Отправляем показания всех счетчиков из привязанных сенсоров
+  - action: pwik.submit_reading
+    data: {}
+  - delay:
+      seconds: 5
+  - action: telegram_bot.send_message
     data:
-      meter_id: "72130027"
-      value: "{{ states('sensor.water_meter_pulse_total') }}"
-      comment: "Подано автоматически из Home Assistant"
+      title: "💧 *PWiK Piaseczno: Показания воды переданы*"
+      message: >
+        ✅ *Показания счетчиков воды успешно переданы в личный кабинет!*
+
+        🚰 *Основной счетчик (72130027):*
+        • Показание: `{{ states('sensor.lora_wmbus_bridge_apator_water_counter') }} м³`
+
+        🌿 *Подлинейник (240630342A):*
+        • Показание: `{{ states('sensor.podlicznik_value') }} м³`
+
+        📅 *Дата фиксации:* `{{ now().strftime('%Y-%m-%d %H:%M') }}`
+        🏢 *Статус:* Заявка зарегистрирована
+      message_thread_id: 49
+mode: single
 ```

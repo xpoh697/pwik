@@ -1,11 +1,11 @@
 submit_reading:
   name: Submit Water Meter Reading
-  description: Submits a water meter reading to PWiK Piaseczno iBOK.
+  description: Submits a water meter reading to PWiK Piaseczno iBOK. If parameters are omitted, automatically submits for all configured meters from their linked local sensors.
   fields:
     value:
       name: Reading Value
-      description: Water meter reading value (e.g. 270 or 270.125).
-      required: true
+      description: Water meter reading value (e.g. 270 or 270.125). If omitted, automatically taken from the linked local sensor.
+      required: false
       example: 270.5
       selector:
         number:
@@ -13,7 +13,7 @@ submit_reading:
           unit_of_measurement: "m³"
     meter_id:
       name: Meter Serial Number
-      description: Serial number of the water meter (e.g. 72130027). Required if you have multiple meters.
+      description: Serial number of the water meter (e.g. 72130027). If omitted, submissions are made for all configured meters.
       required: false
       example: "72130027"
       selector:
