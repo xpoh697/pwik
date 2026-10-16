@@ -11,6 +11,11 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import (
+    area_registry as ar,
+    device_registry as dr,
+    entity_registry as er,
+)
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import homeassistant.helpers.config_validation as cv
 
@@ -41,6 +46,42 @@ CANCEL_READING_SCHEMA = vol.Schema(
 )
 
 
+async def _async_clean_pwik_registry_entries(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Clean unwanted address prefixes from entity IDs and areas."""
+    ent_reg = er.async_get(hass)
+    dev_reg = dr.async_get(hass)
+    area_reg = ar.async_get(hass)
+
+    pwik_device_ids = set()
+    for device in list(dev_reg.devices.values()):
+        if any(ident[0] == DOMAIN for ident in device.identifiers):
+            pwik_device_ids.add(device.id)
+            if device.area_id and ("lidii_wysockiej" in device.area_id or "julianow" in device.area_id):
+                dev_reg.async_update_device(device.id, area_id=None)
+
+    # Clean up empty area if no other user devices are in it
+    area = area_reg.async_get_area("lidii_wysockiej_35_05_500_julianow")
+    if area:
+        other_devices = [
+            d for d in dev_reg.devices.values()
+            if d.area_id == area.id and d.id not in pwik_device_ids
+        ]
+        if not other_devices:
+            area_reg.async_delete(area.id)
+
+    # Clean entity IDs in entity registry
+    for reg_entity in list(ent_reg.entities.values()):
+        if reg_entity.platform == DOMAIN and ("lidii_wysockiej" in reg_entity.entity_id or "julianow" in reg_entity.entity_id):
+            clean_id = reg_entity.entity_id.replace("lidii_wysockiej_35_05_500_julianow_", "")
+            if clean_id != reg_entity.entity_id:
+                if ent_reg.async_get(clean_id) is None:
+                    try:
+                        ent_reg.async_update_entity(reg_entity.entity_id, new_entity_id=clean_id)
+                        _LOGGER.info("Migrated entity_id from %s to %s", reg_entity.entity_id, clean_id)
+                    except Exception as ex:
+                        _LOGGER.warning("Could not rename entity %s to %s: %s", reg_entity.entity_id, clean_id, ex)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up PWiK Piaseczno from a config entry."""
     hass.data.setdefault(DOMAIN, {})
@@ -66,6 +107,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await coordinator.async_config_entry_first_refresh()
 
     hass.data[DOMAIN][entry.entry_id] = coordinator
+
+    # Clean unwanted address prefix from registry before forwarding setups
+    await _async_clean_pwik_registry_entries(hass, entry)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

@@ -71,6 +71,7 @@ class PwikBaseEntity(CoordinatorEntity[PwikDataUpdateCoordinator]):
         self._meter_id = meter_id
         self._entity_type = entity_type
         self._attr_unique_id = f"{DOMAIN}_{meter_id}_{entity_type}"
+        self._attr_suggested_object_id = f"wodomierz_{meter_id}_{entity_type}"
 
     @property
     def meter_data(self) -> dict[str, Any]:
