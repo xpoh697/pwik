@@ -35,7 +35,7 @@
       "last_reading": { "name": "Последнее показание" },
       "last_reading_date": { "name": "Дата последнего показания" },
       "submission_status": { "name": "Статус передачи показаний" },
-      "pending_reading": { "name": "Текущая поданная заявка" },
+      "pending_reading": { "name": "Последнее поданное показание" },
       "consumption_since_last_reading": { "name": "Расход с момента последнего показания" }
     },
     "button": {

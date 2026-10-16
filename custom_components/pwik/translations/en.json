@@ -35,7 +35,7 @@
       "last_reading": { "name": "Last reading" },
       "last_reading_date": { "name": "Last reading date" },
       "submission_status": { "name": "Submission status" },
-      "pending_reading": { "name": "Pending submitted reading" },
+      "pending_reading": { "name": "Last submitted reading" },
       "consumption_since_last_reading": { "name": "Consumption since last reading" }
     },
     "button": {

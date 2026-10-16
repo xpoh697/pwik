@@ -29,6 +29,17 @@ from .const import (
 from .coordinator import PwikDataUpdateCoordinator
 
 
+def get_source_sensor(entry: ConfigEntry, meter_id: str) -> str | None:
+    """Safely get linked source sensor from options or data."""
+    for container in (entry.options, entry.data):
+        sensors_dict = container.get(CONF_SOURCE_SENSORS, {})
+        if isinstance(sensors_dict, dict) and sensors_dict.get(meter_id):
+            return sensors_dict[meter_id]
+        if container.get(f"sensor_{meter_id}"):
+            return container[f"sensor_{meter_id}"]
+    return None
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -203,7 +214,7 @@ class PwikSubmissionStatusSensor(PwikBaseEntity, SensorEntity):
 
 
 class PwikPendingReadingSensor(PwikBaseEntity, SensorEntity):
-    """Sensor for current pending reading awaiting confirmation."""
+    """Sensor for last submitted reading."""
 
     _attr_device_class = SensorDeviceClass.WATER
     _attr_native_unit_of_measurement = UnitOfVolume.CUBIC_METERS
@@ -214,7 +225,7 @@ class PwikPendingReadingSensor(PwikBaseEntity, SensorEntity):
         self, coordinator: PwikDataUpdateCoordinator, entry: ConfigEntry, meter_id: str
     ) -> None:
         super().__init__(coordinator, entry, meter_id, "pending_reading")
-        self._attr_name = "Текущая поданная заявка"
+        self._attr_name = "Последнее поданное показание"
 
     @property
     def native_value(self) -> float | None:
@@ -249,11 +260,7 @@ class PwikConsumptionSinceLastSensor(PwikBaseEntity, SensorEntity):
     async def async_added_to_hass(self) -> None:
         """Handle entity added to hass."""
         await super().async_added_to_hass()
-        source_sensors = self._entry.options.get(
-            CONF_SOURCE_SENSORS,
-            self._entry.data.get(CONF_SOURCE_SENSORS, {}),
-        )
-        source_entity = source_sensors.get(self._meter_id)
+        source_entity = get_source_sensor(self._entry, self._meter_id)
         if source_entity:
             self.async_on_remove(
                 async_track_state_change_event(
@@ -268,11 +275,7 @@ class PwikConsumptionSinceLastSensor(PwikBaseEntity, SensorEntity):
     @property
     def native_value(self) -> float | None:
         """Calculate consumption based on linked HA source sensor."""
-        source_sensors = self._entry.options.get(
-            CONF_SOURCE_SENSORS,
-            self._entry.data.get(CONF_SOURCE_SENSORS, {}),
-        )
-        source_entity = source_sensors.get(self._meter_id)
+        source_entity = get_source_sensor(self._entry, self._meter_id)
         if not source_entity:
             return None
 
@@ -282,6 +285,11 @@ class PwikConsumptionSinceLastSensor(PwikBaseEntity, SensorEntity):
 
         try:
             curr_val = float(state.state)
+            # Automatic unit conversion if source sensor reports in liters
+            uom = str(state.attributes.get("unit_of_measurement", "")).lower()
+            if uom in ("l", "литр", "литра", "литров", "dm3", "dm³"):
+                curr_val = curr_val / 1000.0
+
             last_billing_val = float(self.meter_data.get("sl", 0))
             return max(0.0, round(curr_val - last_billing_val, 3))
         except (ValueError, TypeError):
@@ -290,10 +298,6 @@ class PwikConsumptionSinceLastSensor(PwikBaseEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return linked source sensor."""
-        source_sensors = self._entry.options.get(
-            CONF_SOURCE_SENSORS,
-            self._entry.data.get(CONF_SOURCE_SENSORS, {}),
-        )
         return {
-            "source_sensor": source_sensors.get(self._meter_id),
+            "source_sensor": get_source_sensor(self._entry, self._meter_id),
         }

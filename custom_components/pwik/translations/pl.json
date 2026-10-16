@@ -35,7 +35,7 @@
       "last_reading": { "name": "Ostatni odczyt" },
       "last_reading_date": { "name": "Data ostatniego odczytu" },
       "submission_status": { "name": "Status zgłoszenia" },
-      "pending_reading": { "name": "Zgłoszony odczyt (oczekujący)" },
+      "pending_reading": { "name": "Ostatni zgłoszony odczyt" },
       "consumption_since_last_reading": { "name": "Zużycie od ostatniego odczytu" }
     },
     "button": {

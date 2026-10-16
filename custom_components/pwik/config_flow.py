@@ -132,11 +132,18 @@ class PwikOptionsFlowHandler(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         """Manage options."""
-        if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
-
         coordinator = self.hass.data[DOMAIN][self._config_entry.entry_id]
         meters = coordinator.data.get("meters", {})
+
+        if user_input is not None:
+            source_sensors = {
+                meter_num: user_input.get(f"sensor_{meter_num}")
+                for meter_num in meters
+                if user_input.get(f"sensor_{meter_num}")
+            }
+            options_data = dict(user_input)
+            options_data[CONF_SOURCE_SENSORS] = source_sensors
+            return self.async_create_entry(title="", data=options_data)
 
         fields: dict[Any, Any] = {
             vol.Optional(
@@ -153,10 +160,16 @@ class PwikOptionsFlowHandler(config_entries.OptionsFlow):
         )
 
         for meter_num in meters:
+            default_val = ""
+            if isinstance(saved_sensors, dict) and saved_sensors.get(meter_num):
+                default_val = saved_sensors[meter_num]
+            elif self._config_entry.options.get(f"sensor_{meter_num}"):
+                default_val = self._config_entry.options[f"sensor_{meter_num}"]
+
             fields[
                 vol.Optional(
                     f"sensor_{meter_num}",
-                    default=saved_sensors.get(meter_num, ""),
+                    default=default_val,
                 )
             ] = cv.string
 

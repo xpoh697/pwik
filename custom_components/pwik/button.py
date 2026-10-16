@@ -14,7 +14,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import CONF_SOURCE_SENSORS, DOMAIN
 from .coordinator import PwikDataUpdateCoordinator
-from .sensor import PwikBaseEntity
+from .sensor import PwikBaseEntity, get_source_sensor
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -64,11 +64,7 @@ class PwikSubmitReadingButton(PwikBaseEntity, ButtonEntity):
             return
 
         async with self._lock:
-            source_sensors = self._entry.options.get(
-                CONF_SOURCE_SENSORS,
-                self._entry.data.get(CONF_SOURCE_SENSORS, {}),
-            )
-            source_entity = source_sensors.get(self._meter_id)
+            source_entity = get_source_sensor(self._entry, self._meter_id)
             if not source_entity:
                 raise HomeAssistantError(
                     f"Локальный датчик расхода воды для счетчика {self._meter_id} не настроен. "
@@ -81,10 +77,19 @@ class PwikSubmitReadingButton(PwikBaseEntity, ButtonEntity):
                     f"Локальный датчик воды '{source_entity}' недоступен (состояние: {state.state if state else 'None'})"
                 )
 
+            try:
+                curr_val = float(state.state)
+                uom = str(state.attributes.get("unit_of_measurement", "")).lower()
+                if uom in ("l", "литр", "литра", "литров", "dm3", "dm³"):
+                    curr_val = round(curr_val / 1000.0, 3)
+                submit_val: float | str = curr_val
+            except (ValueError, TypeError):
+                submit_val = state.state
+
             today_str = date.today().isoformat()
             await self.coordinator.api.submit_reading(
                 meter_id=self._meter_id,
-                value=state.state,
+                value=submit_val,
                 date_str=today_str,
                 comment="Подано через кнопку Home Assistant",
             )

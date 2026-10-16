@@ -69,17 +69,25 @@ async def _async_clean_pwik_registry_entries(hass: HomeAssistant, entry: ConfigE
         if not other_devices:
             area_reg.async_delete(area.id)
 
-    # Clean entity IDs in entity registry
+    # Clean entity IDs and update names in entity registry
     for reg_entity in list(ent_reg.entities.values()):
-        if reg_entity.platform == DOMAIN and ("lidii_wysockiej" in reg_entity.entity_id or "julianow" in reg_entity.entity_id):
-            clean_id = reg_entity.entity_id.replace("lidii_wysockiej_35_05_500_julianow_", "")
-            if clean_id != reg_entity.entity_id:
-                if ent_reg.async_get(clean_id) is None:
+        if reg_entity.platform == DOMAIN:
+            # 1. Clean address prefix if present
+            if "lidii_wysockiej" in reg_entity.entity_id or "julianow" in reg_entity.entity_id:
+                clean_id = reg_entity.entity_id.replace("lidii_wysockiej_35_05_500_julianow_", "")
+                if clean_id != reg_entity.entity_id and ent_reg.async_get(clean_id) is None:
                     try:
                         ent_reg.async_update_entity(reg_entity.entity_id, new_entity_id=clean_id)
                         _LOGGER.info("Migrated entity_id from %s to %s", reg_entity.entity_id, clean_id)
                     except Exception as ex:
                         _LOGGER.warning("Could not rename entity %s to %s: %s", reg_entity.entity_id, clean_id, ex)
+
+            # 2. Update custom name if it had the old name
+            if reg_entity.translation_key == "pending_reading" and reg_entity.name == "Текущая поданная заявка":
+                try:
+                    ent_reg.async_update_entity(reg_entity.entity_id, name="Последнее поданное показание")
+                except Exception:
+                    pass
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -169,7 +177,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             schema=CANCEL_READING_SCHEMA,
         )
 
+    # Listen for option changes
+    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
+
     return True
+
+
+async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload config entry when options change."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
