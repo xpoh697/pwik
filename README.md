@@ -1,10 +1,18 @@
-# PWiK Piaseczno iBOK - Интеграция для Home Assistant
-
 <p align="center">
   <img src="images/logo.png" alt="PWiK Piaseczno Logo" width="300">
 </p>
 
-Интеграция Home Assistant для передачи показаний счетчиков воды и мониторинга водопотребления через личный кабинет **PWiK Piaseczno iBOK** (`https://ibok.pwikpiaseczno.pl/`).
+<h1 align="center">PWiK Piaseczno iBOK — Home Assistant Integration</h1>
+
+<p align="center">
+  <a href="https://github.com/hacs/default"><img src="https://img.shields.io/badge/HACS-Custom-orange.svg" alt="HACS"></a>
+  <a href="https://github.com/xpoh697/pwik/releases"><img src="https://img.shields.io/github/v/release/xpoh697/pwik?include_prereleases" alt="Release"></a>
+  <a href="https://github.com/xpoh697/pwik/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
+</p>
+
+**Автор:** [xpoh697](https://github.com/xpoh697)
+
+Пользовательская интеграция Home Assistant для передачи показаний счетчиков воды и мониторинга водопотребления через личный кабинет **PWiK Piaseczno iBOK** (`https://ibok.pwikpiaseczno.pl/`).
 
 ---
 
