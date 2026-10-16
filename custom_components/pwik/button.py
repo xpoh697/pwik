@@ -91,7 +91,7 @@ class PwikSubmitReadingButton(PwikBaseEntity, ButtonEntity):
                 meter_id=self._meter_id,
                 value=submit_val,
                 date_str=today_str,
-                comment="Подано через кнопку Home Assistant",
+                comment="",
             )
             await self.coordinator.async_request_refresh()
 

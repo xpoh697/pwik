@@ -27,9 +27,9 @@ submit_reading:
         date:
     comment:
       name: Comment
-      description: Optional comment submitted with the reading.
+      description: Optional comment submitted with the reading (defaults to empty).
       required: false
-      example: "Podano z automatyzacji Home Assistant"
+      example: ""
       selector:
         text:
 

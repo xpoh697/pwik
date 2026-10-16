@@ -212,7 +212,7 @@ class PwikApiClient:
         meter_id: str,
         value: float | str,
         date_str: str,
-        comment: str = "Home Assistant",
+        comment: str = "",
     ) -> bool:
         """Submit water meter reading with strict validation and error detection."""
         async with self._lock:

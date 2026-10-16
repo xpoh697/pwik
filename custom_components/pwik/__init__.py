@@ -37,7 +37,7 @@ SUBMIT_READING_SCHEMA = vol.Schema(
         vol.Optional("value"): vol.Any(cv.positive_float, cv.string),
         vol.Optional("meter_id"): cv.string,
         vol.Optional("date"): cv.string,
-        vol.Optional("comment", default="Podano przez Home Assistant"): cv.string,
+        vol.Optional("comment", default=""): cv.string,
     }
 )
 
@@ -128,7 +128,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         """Handle submit reading service call."""
         meter_id = call.data.get("meter_id")
         date_str = call.data.get("date") or date.today().isoformat()
-        comment = call.data.get("comment", "Podano przez Home Assistant")
+        comment = call.data.get("comment", "")
 
         meters = coordinator.data.get("meters", {})
         target_meters = [meter_id] if meter_id else list(meters.keys())
