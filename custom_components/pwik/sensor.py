@@ -1,6 +1,7 @@
 """Sensor platform for PWiK Piaseczno iBOK."""
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -13,6 +14,7 @@ from homeassistant.const import UnitOfVolume
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
@@ -113,10 +115,17 @@ class PwikLastReadingSensor(PwikBaseEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return attributes."""
+        readings_history = self.coordinator.data.get("readouts", {}).get(self._meter_id, [])
+        reading_type = "Odczyt radiowy"
+        if readings_history and isinstance(readings_history, list):
+            reading_type = readings_history[0].get("typ", reading_type)
+
         return {
             "meter_number": self._meter_id,
             "meter_id_wodom": self.meter_data.get("id_wodom"),
             "reading_id": self.meter_data.get("io"),
+            "reading_date": self.meter_data.get("do"),
+            "reading_type": reading_type,
             "address": self.meter_data.get("adres"),
         }
 
@@ -135,9 +144,24 @@ class PwikLastReadingDateSensor(PwikBaseEntity, SensorEntity):
         self._attr_name = "Дата последнего показания"
 
     @property
-    def native_value(self) -> str | None:
-        """Return the date string."""
-        return self.meter_data.get("do")
+    def native_value(self) -> date | None:
+        """Return the date as a date object."""
+        raw = self.meter_data.get("do")
+        if not raw or not isinstance(raw, str):
+            return None
+        try:
+            clean_date = raw.strip()[:10]
+            return date.fromisoformat(clean_date)
+        except (ValueError, TypeError, AttributeError):
+            return None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return date metadata."""
+        return {
+            "raw_date": self.meter_data.get("do"),
+            "reading_id": self.meter_data.get("io"),
+        }
 
 
 class PwikSubmissionStatusSensor(PwikBaseEntity, SensorEntity):
@@ -210,7 +234,7 @@ class PwikConsumptionSinceLastSensor(PwikBaseEntity, SensorEntity):
     """Sensor calculating real-time water consumption since last billing reading."""
 
     _attr_device_class = SensorDeviceClass.WATER
-    _attr_state_class = SensorStateClass.TOTAL
+    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfVolume.CUBIC_METERS
     _attr_icon = "mdi:water-sync"
     _attr_translation_key = "consumption_since_last_reading"
@@ -220,6 +244,25 @@ class PwikConsumptionSinceLastSensor(PwikBaseEntity, SensorEntity):
     ) -> None:
         super().__init__(coordinator, entry, meter_id, "consumption_since_last_reading")
         self._attr_name = "Расход с момента последнего показания"
+
+    async def async_added_to_hass(self) -> None:
+        """Handle entity added to hass."""
+        await super().async_added_to_hass()
+        source_sensors = self._entry.options.get(
+            CONF_SOURCE_SENSORS,
+            self._entry.data.get(CONF_SOURCE_SENSORS, {}),
+        )
+        source_entity = source_sensors.get(self._meter_id)
+        if source_entity:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, [source_entity], self._async_source_changed
+                )
+            )
+
+    async def _async_source_changed(self, event: Any) -> None:
+        """Handle source sensor state change."""
+        self.async_write_ha_state()
 
     @property
     def native_value(self) -> float | None:
