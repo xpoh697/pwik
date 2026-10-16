@@ -1,18 +1,22 @@
 """Button platform for PWiK Piaseczno iBOK."""
 from __future__ import annotations
 
+import asyncio
 from datetime import date
+import logging
 from typing import Any
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import CONF_SOURCE_SENSORS, DOMAIN
 from .coordinator import PwikDataUpdateCoordinator
+from .sensor import PwikBaseEntity
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
@@ -36,10 +40,10 @@ async def async_setup_entry(
     async_add_entities(buttons)
 
 
-class PwikSubmitReadingButton(ButtonEntity):
+class PwikSubmitReadingButton(PwikBaseEntity, ButtonEntity):
     """Button to submit the reading from the linked source sensor."""
 
-    _attr_has_entity_name = True
+    _attr_icon = "mdi:water-pump"
     _attr_translation_key = "submit_reading"
 
     def __init__(
@@ -49,49 +53,48 @@ class PwikSubmitReadingButton(ButtonEntity):
         meter_id: str,
     ) -> None:
         """Initialize."""
-        self._coordinator = coordinator
-        self._entry = entry
-        self._meter_id = meter_id
-        self._attr_unique_id = f"{DOMAIN}_{meter_id}_submit_reading"
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device info."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._meter_id)},
-            name=f"Wodomierz {self._meter_id}",
-        )
+        super().__init__(coordinator, entry, meter_id, "submit_reading")
+        self._attr_name = "Подать показания"
+        self._lock = asyncio.Lock()
 
     async def async_press(self) -> None:
         """Handle button press."""
-        source_sensors = self._entry.options.get(
-            CONF_SOURCE_SENSORS,
-            self._entry.data.get(CONF_SOURCE_SENSORS, {}),
-        )
-        source_entity = source_sensors.get(self._meter_id)
-        if not source_entity:
-            raise HomeAssistantError(
-                f"No source sensor configured for meter {self._meter_id}. Please configure it in options."
+        if self._lock.locked():
+            _LOGGER.warning("Запрос на отправку показаний уже выполняется")
+            return
+
+        async with self._lock:
+            source_sensors = self._entry.options.get(
+                CONF_SOURCE_SENSORS,
+                self._entry.data.get(CONF_SOURCE_SENSORS, {}),
             )
+            source_entity = source_sensors.get(self._meter_id)
+            if not source_entity:
+                raise HomeAssistantError(
+                    f"Локальный датчик расхода воды для счетчика {self._meter_id} не настроен. "
+                    "Укажите его в параметрах интеграции (Настройки -> Интеграции -> PWiK -> Настроить)."
+                )
 
-        state = self.hass.states.get(source_entity)
-        if not state or state.state in ("unknown", "unavailable"):
-            raise HomeAssistantError(f"Source sensor {source_entity} is unavailable")
+            state = self.hass.states.get(source_entity)
+            if not state or state.state in ("unknown", "unavailable"):
+                raise HomeAssistantError(
+                    f"Локальный датчик воды '{source_entity}' недоступен (состояние: {state.state if state else 'None'})"
+                )
 
-        today_str = date.today().isoformat()
-        await self._coordinator.api.submit_reading(
-            meter_id=self._meter_id,
-            value=state.state,
-            date_str=today_str,
-            comment="Submitted via Home Assistant Button",
-        )
-        await self._coordinator.async_request_refresh()
+            today_str = date.today().isoformat()
+            await self.coordinator.api.submit_reading(
+                meter_id=self._meter_id,
+                value=state.state,
+                date_str=today_str,
+                comment="Подано через кнопку Home Assistant",
+            )
+            await self.coordinator.async_request_refresh()
 
 
-class PwikCancelReadingButton(ButtonEntity):
+class PwikCancelReadingButton(PwikBaseEntity, ButtonEntity):
     """Button to cancel a pending reading submission."""
 
-    _attr_has_entity_name = True
+    _attr_icon = "mdi:cancel"
     _attr_translation_key = "cancel_reading"
 
     def __init__(
@@ -101,20 +104,15 @@ class PwikCancelReadingButton(ButtonEntity):
         meter_id: str,
     ) -> None:
         """Initialize."""
-        self._coordinator = coordinator
-        self._entry = entry
-        self._meter_id = meter_id
-        self._attr_unique_id = f"{DOMAIN}_{meter_id}_cancel_reading"
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device info."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._meter_id)},
-            name=f"Wodomierz {self._meter_id}",
-        )
+        super().__init__(coordinator, entry, meter_id, "cancel_reading")
+        self._attr_name = "Отменить поданное показание"
+        self._lock = asyncio.Lock()
 
     async def async_press(self) -> None:
         """Handle button press."""
-        await self._coordinator.api.cancel_reading(self._meter_id)
-        await self._coordinator.async_request_refresh()
+        if self._lock.locked():
+            return
+
+        async with self._lock:
+            await self.coordinator.api.cancel_reading(self._meter_id)
+            await self.coordinator.async_request_refresh()
