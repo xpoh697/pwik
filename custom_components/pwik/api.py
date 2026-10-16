@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from datetime import date
 import json
 import logging
 import math
@@ -225,14 +226,20 @@ class PwikApiClient:
                     f"New reading ({cleaned_val} m³) cannot be less than previous billing reading ({last_reading} m³)"
                 )
 
-            # Format integer and fractional parts
+            # Format integer and fractional parts matching meter precision
             nr_part, frac_part = self.format_reading(value, meter.get("min_zakres", "0.001"))
 
-            # 2. Build multipart payload
+            # Normalize date to YYYY-MM-DD
+            try:
+                clean_date = date.fromisoformat(str(date_str).strip()[:10]).isoformat()
+            except (ValueError, TypeError):
+                clean_date = date.today().isoformat()
+
+            # 2. Build multipart payload strictly matching PWiK portal fields
             form = aiohttp.FormData()
             form.add_field("id_wodom", str(meter.get("id_wodom", "")))
             form.add_field("odcz_poprz", str(meter.get("io", "0")))
-            form.add_field("txtDateOfReading", date_str)
+            form.add_field("txtDateOfReading", clean_date)
             form.add_field("txtReadingNr", nr_part)
             form.add_field("txtReadingFrac", frac_part)
             form.add_field("txtDesc", comment)
@@ -260,9 +267,10 @@ class PwikApiClient:
                 raise PwikApiError(f"PWiK rejected reading submission: {', '.join(errors)}")
 
             _LOGGER.info(
-                "Successfully submitted reading %s.%s for water meter %s",
+                "Successfully submitted reading %s.%s (date: %s) for water meter %s",
                 nr_part,
                 frac_part,
+                clean_date,
                 meter_id,
             )
             return True
