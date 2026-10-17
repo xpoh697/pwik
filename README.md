@@ -33,6 +33,7 @@
   - `pwik.cancel_reading`: Отмена заявки на передачу показаний.
 - **Интеллектуальная обработка сессий**: автоматическое обнаружение конфликтов одиночной сессии (`#loginWrongSessionLimit`) и аварийный сброс через `?logout=true&kill=true`.
 - **Строгая валидация**:
+  - Проверка чисел с защитой от `NaN`, бесконечности и отрицательных значений.
   - Разделение целой и дробной части с учетом точной разрядности счетчика (`min_zakres`).
   - Проверка монотонного возрастания показания ($reading \ge last\_reading$).
   - Контроль ответов сервера через Base64-декодирование эндпоинта `?module=Errors`.
@@ -66,13 +67,13 @@
 
 ## Использование в автоматизациях
 
-### Пример регулярной отправки показаний (1-го числа месяца в 00:01 с отчетом в Telegram)
+### Пример регулярной отправки показаний (1-го числа в 00:01 с повторными попытками и Telegram)
 
-Интеграция автоматически считывает текущие значения из привязанных локальных сенсоров, нормализует единицы измерения и отправляет показания для всех счетчиков без необходимости повторно передавать значения в YAML:
+Интеграция автоматически считывает текущие значения из привязанных локальных сенсоров, нормализует единицы измерения и отправляет показания. В случае временного сбоя связи или техобслуживания портала автоматизация выполнит до 3 попыток с 5-минутным интервалом:
 
 ```yaml
 alias: "PWiK: Ежемесячная передача показаний воды"
-description: "Автоматическая отправка показаний основного счетчика и подлинейника в PWiK Piaseczno 1-го числа каждого месяца в 00:01 с отчетом в Telegram"
+description: "Автоматическая отправка показаний основного счетчика и подлинейника в PWiK Piaseczno 1-го числа каждого месяца в 00:01 с повторными попытками и отчетом в Telegram"
 triggers:
   - trigger: time
     at: "00:01:00"
@@ -80,25 +81,53 @@ conditions:
   - condition: template
     value_template: "{{ now().day == 1 }}"
 actions:
-  # Отправляем показания всех счетчиков из привязанных сенсоров
-  - action: pwik.submit_reading
-    data: {}
-  - delay:
-      seconds: 5
-  - action: telegram_bot.send_message
-    data:
-      title: "💧 *PWiK Piaseczno: Показания воды переданы*"
-      message: >
-        ✅ *Показания счетчиков воды успешно переданы в личный кабинет!*
+  - repeat:
+      until:
+        - condition: template
+          value_template: >-
+            {{ (states('sensor.wodomierz_72130027_glowny_submission_status') in ['pending', 'in_progress', 'approved'] and
+                states('sensor.wodomierz_240630342a_podlicznik_submission_status') in ['pending', 'in_progress', 'approved'])
+               or repeat.index >= 3 }}
+      sequence:
+        - action: pwik.submit_reading
+          data: {}
+          continue_on_error: true
+        - delay:
+            seconds: 15
+        - if:
+            - condition: template
+              value_template: >-
+                {{ not (states('sensor.wodomierz_72130027_glowny_submission_status') in ['pending', 'in_progress', 'approved'] and
+                        states('sensor.wodomierz_240630342a_podlicznik_submission_status') in ['pending', 'in_progress', 'approved'])
+                   and repeat.index < 3 }}
+          then:
+            - delay:
+                minutes: 5
+  - if:
+      - condition: template
+        value_template: >-
+          {{ states('sensor.wodomierz_72130027_glowny_submission_status') in ['pending', 'in_progress', 'approved'] and
+             states('sensor.wodomierz_240630342a_podlicznik_submission_status') in ['pending', 'in_progress', 'approved'] }}
+    then:
+      - action: telegram_bot.send_message
+        data:
+          title: "💧 *PWiK Piaseczno: Показания воды переданы*"
+          message: |
 
-        🚰 *Основной счетчик (72130027):*
-        • Показание: `{{ states('sensor.lora_wmbus_bridge_apator_water_counter') }} м³`
+            🚰 *Основной:* `{{ states('sensor.lora_wmbus_bridge_apator_water_counter') }} м³`
+            🌿 *Подсчетчик:* `{{ states('sensor.podlicznik_value') }} м³`
+          message_thread_id: 49
+    else:
+      - action: telegram_bot.send_message
+        data:
+          title: "🚨 *PWiK Piaseczno: Ошибка передачи показаний!*"
+          message: |
 
-        🌿 *Подлинейник (240630342A):*
-        • Показание: `{{ states('sensor.podlicznik_value') }} м³`
-
-        📅 *Дата фиксации:* `{{ now().strftime('%Y-%m-%d %H:%M') }}`
-        🏢 *Статус:* Заявка зарегистрирована
-      message_thread_id: 49
+            ⚠️ *Не удалось передать показания воды после 3 попыток.*
+            Текущие статусы:
+            • Основной: `{{ states('sensor.wodomierz_72130027_glowny_submission_status') }}`
+            • Подсчетчик: `{{ states('sensor.wodomierz_240630342a_podlicznik_submission_status') }}`
+            _Пожалуйста, проверьте показания и отправьте вручную через Home Assistant._
+          message_thread_id: 49
 mode: single
 ```

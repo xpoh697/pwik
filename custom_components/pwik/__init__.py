@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 from datetime import date
 import logging
+import math
 from typing import Any
 
 import voluptuous as vol
@@ -32,9 +33,24 @@ PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BUTTON]
 SERVICE_SUBMIT_READING = "submit_reading"
 SERVICE_CANCEL_READING = "cancel_reading"
 
+
+def validate_reading_value(value: Any) -> float:
+    """Validate that value can be converted to a positive finite float."""
+    if value is None:
+        raise vol.Invalid("Значение показания не может быть пустым")
+    cleaned = str(value).strip().split()[0].replace(",", ".")
+    try:
+        val = float(cleaned)
+    except (ValueError, TypeError):
+        raise vol.Invalid(f"Показание счетчика должно быть числом, получено: '{value}'")
+    if math.isnan(val) or math.isinf(val) or val < 0:
+        raise vol.Invalid(f"Показание счетчика должно быть положительным конечным числом, получено: {val}")
+    return val
+
+
 SUBMIT_READING_SCHEMA = vol.Schema(
     {
-        vol.Optional("value"): vol.Any(cv.positive_float, cv.string),
+        vol.Optional("value"): validate_reading_value,
         vol.Optional("meter_id"): cv.string,
         vol.Optional("date"): cv.string,
         vol.Optional("comment", default=""): cv.string,
@@ -166,13 +182,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     continue
 
                 try:
-                    curr_val = float(state.state)
+                    clean_state = state.state.strip().split()[0].replace(",", ".")
+                    curr_val = float(clean_state)
                     uom = str(state.attributes.get("unit_of_measurement", "")).lower()
                     if uom in ("l", "литр", "литра", "литров", "dm3", "dm³"):
                         curr_val = round(curr_val / 1000.0, 3)
+                    if math.isnan(curr_val) or math.isinf(curr_val) or curr_val < 0:
+                        raise ValueError(f"Invalid numeric value {curr_val}")
                     val_to_submit = curr_val
                 except (ValueError, TypeError):
-                    val_to_submit = state.state
+                    msg = f"Состояние локального сенсора '{source_entity}' не является числом (значение: '{state.state}')"
+                    if len(target_meters) == 1:
+                        raise HomeAssistantError(msg)
+                    _LOGGER.warning(msg)
+                    errors.append(msg)
+                    continue
 
             try:
                 await coordinator.api.submit_reading(

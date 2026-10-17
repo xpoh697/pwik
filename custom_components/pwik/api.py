@@ -191,10 +191,28 @@ class PwikApiClient:
             return await self._get_data_unlocked()
 
     @staticmethod
-    def format_reading(value: float | str, min_zakres: str) -> tuple[str, str]:
+    def parse_reading_value(value: Any) -> float:
+        """Validate and parse a reading value into a non-negative finite float."""
+        if value is None:
+            raise PwikApiError("Значение показания не может быть пустым")
+        cleaned = str(value).strip().split()[0].replace(",", ".")
+        if not cleaned:
+            raise PwikApiError("Значение показания не может быть пустым")
+        try:
+            val_float = float(cleaned)
+        except (ValueError, TypeError) as err:
+            raise PwikApiError(f"Показание счетчика должно быть числом, получено: '{value}'") from err
+
+        if math.isnan(val_float) or math.isinf(val_float):
+            raise PwikApiError(f"Показание счетчика не может быть NaN или Infinity: '{value}'")
+        if val_float < 0:
+            raise PwikApiError(f"Показание счетчика не может быть отрицательным: {val_float}")
+        return val_float
+
+    @classmethod
+    def format_reading(cls, value: float | str, min_zakres: str) -> tuple[str, str]:
         """Format a reading into integer and fractional parts matching meter precision."""
-        cleaned = str(value).strip().replace(",", ".")
-        val_float = float(cleaned)
+        val_float = cls.parse_reading_value(value)
 
         decimals = 0
         if min_zakres and "." in min_zakres:
@@ -233,16 +251,18 @@ class PwikApiClient:
                     f"Заявка на передачу показаний для счетчика {meter_id} уже находится в обработке (статус: in_progress)"
                 )
 
+            # Validate numeric value
+            cleaned_val = self.parse_reading_value(value)
+
             # Validate monotonous increase
             last_reading = float(meter.get("sl", 0))
-            cleaned_val = float(str(value).strip().replace(",", "."))
             if cleaned_val < last_reading:
                 raise PwikApiError(
                     f"New reading ({cleaned_val} m³) cannot be less than previous billing reading ({last_reading} m³)"
                 )
 
             # Format integer and fractional parts matching meter precision
-            nr_part, frac_part = self.format_reading(value, meter.get("min_zakres", "0.001"))
+            nr_part, frac_part = self.format_reading(cleaned_val, meter.get("min_zakres", "0.001"))
 
             # Normalize date to YYYY-MM-DD
             try:

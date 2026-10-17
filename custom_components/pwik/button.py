@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 from datetime import date
 import logging
+import math
 from typing import Any
 
 from homeassistant.components.button import ButtonEntity
@@ -78,13 +79,18 @@ class PwikSubmitReadingButton(PwikBaseEntity, ButtonEntity):
                 )
 
             try:
-                curr_val = float(state.state)
+                clean_state = state.state.strip().split()[0].replace(",", ".")
+                curr_val = float(clean_state)
                 uom = str(state.attributes.get("unit_of_measurement", "")).lower()
                 if uom in ("l", "литр", "литра", "литров", "dm3", "dm³"):
                     curr_val = round(curr_val / 1000.0, 3)
-                submit_val: float | str = curr_val
+                if math.isnan(curr_val) or math.isinf(curr_val) or curr_val < 0:
+                    raise ValueError(f"Invalid numeric value {curr_val}")
+                submit_val: float = curr_val
             except (ValueError, TypeError):
-                submit_val = state.state
+                raise HomeAssistantError(
+                    f"Состояние локального датчика воды '{source_entity}' не является числом (значение: '{state.state}')"
+                )
 
             today_str = date.today().isoformat()
             await self.coordinator.api.submit_reading(
